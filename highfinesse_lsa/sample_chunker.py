@@ -82,6 +82,6 @@ class SampleChunker:
         if self._points:
             pass
         else:
-            self._log.info("No data for channel '%s' in last %s seconds.",
-                           self.name, self.max_bin_duration_secs)
+            self._log.debug("No data for channel '%s' in last %s seconds.",
+                            self.name, self.max_bin_duration_secs)
         self._schedule_timeout()

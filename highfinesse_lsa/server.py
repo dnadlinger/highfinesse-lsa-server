@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 
+import aiohttp
 import argparse
 import asyncio
+import atexit
+import logging
 import numpy as np
+import time
 
 from .sample_chunker import SampleChunker
 from .wlm_data import LSA, MeasurementType
 from typing import Iterable
-from artiq.protocols.pc_rpc import simple_server_loop
-from artiq.tools import verbosity_args, simple_network_args, init_logger
+from artiq.protocols.pc_rpc import Server
+from artiq.tools import atexit_register_coroutine, bind_address_from_args, init_logger, simple_network_args, TaskObject, verbosity_args
+
+logger = logging.getLogger(__name__)
 
 
 class RPCInterface:
@@ -24,11 +30,56 @@ class RPCInterface:
         return np.vstack([np.ctypeslib.as_array(x) for x in meas])
 
 
-def get_argparser() -> argparse.ArgumentParser:
+def get_argparser():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--influxdb-endpoint", default=None,
+                        help="InfluxDB write endpoint to push data to (e,g. "
+                        "http://localhost:8086/write?db=mydb)")
+    parser.add_argument("--influxdb-tags", default="system=pulsar,device=lsa")
     simple_network_args(parser, 4008)
     verbosity_args(parser)
     return parser
+
+
+class InfluxDBExporter(TaskObject):
+    def __init__(self, loop, write_endpoint, tags):
+        self._loop = loop
+        self.write_endpoint = write_endpoint
+        self.tags = tags
+
+        self._queue = asyncio.Queue(100)
+
+    def push(self, field, values):
+        data = np.array(values)
+        stats = {
+            "min": np.min(data),
+            "p20": np.percentile(data, 20),
+            "mean": np.mean(data),
+            "p80": np.percentile(data, 80),
+            "max": np.max(data)
+        }
+
+        try:
+            self._queue.put_nowait((field, stats, time.time()))
+        except asyncio.QueueFull:
+            logger.warning("failed to update dataset '%s': "
+                           "too many pending updates", field)
+
+    async def _do(self):
+        while True:
+            field, stats, timestamp = await self._queue.get()
+
+            values = ",".join(["{}={}".format(k, v) for k, v in stats.items()])
+            body = "{},{} {} {}".format(
+                field, self.tags, values, round(timestamp * 1e3))
+
+            async with aiohttp.ClientSession(loop=self._loop) as client:
+                async with client.post(self.write_endpoint + "&precision=ms",
+                                       data=body) as resp:
+                    if resp.status != 204:
+                        logger.warning("got HTTP status %d trying to "
+                                       "update '%s': %s", resp.status, field,
+                                       (await resp.text()).strip())
 
 
 def main() -> None:
@@ -36,14 +87,22 @@ def main() -> None:
     init_logger(args)
 
     loop = asyncio.get_event_loop()
+    atexit.register(loop.close)
+
+    exporter = None
+    if args.influxdb_endpoint:
+        exporter = InfluxDBExporter(loop, args.influxdb_endpoint, args.influxdb_tags)
+        exporter.start()
+        atexit_register_coroutine(exporter.stop)
 
     channels = dict()
 
     def reg_chan(name: str, meas_type: MeasurementType) -> None:
-        # TODO: Make callback log into Grafana.
-        binner = SampleChunker(loop, name, lambda _: print("Finished " + name),
-                               256, 30)
-        channels[meas_type] = binner
+        def cb(values):
+            if exporter:
+                exporter.push(name, values)
+        chunker = SampleChunker(loop, name, cb, 256, 30)
+        channels[meas_type] = chunker
 
     reg_chan("temperature_celsius", MeasurementType.temperature)
     reg_chan("air_pressure_mbar", MeasurementType.air_pressure)
@@ -62,7 +121,11 @@ def main() -> None:
     lsa.add_callback(lambda *a: loop.call_soon_threadsafe(lambda: meas_cb(*a)))
 
     rpc_interface = RPCInterface(lsa, channels.values())
-    simple_server_loop({"lsa": rpc_interface}, args.bind, args.port)
+    rpc_server = Server({"lsa": rpc_interface}, builtin_terminate=True)
+    loop.run_until_complete(rpc_server.start(bind_address_from_args(args), args.port))
+    atexit_register_coroutine(rpc_server.stop)
+
+    loop.run_until_complete(rpc_server.wait_terminate())
 
 
 if __name__ == "__main__":
