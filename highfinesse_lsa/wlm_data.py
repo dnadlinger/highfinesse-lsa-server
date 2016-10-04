@@ -253,6 +253,10 @@ class LSA:
         # self._driver is actually guaranteed to be available still (in which
         # case self._c_callback might already be gone as well, which renders
         # this entire exercise pointless).
+        if self._driver:
+            close()
+
+    def close(self) -> None:
         self._driver.instantiate(c_long(cInstNotification),
                                  c_long(cNotifyRemoveCallback),
                                  c_ssize_t(0), c_long(0))

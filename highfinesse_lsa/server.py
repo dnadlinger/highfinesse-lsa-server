@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import atexit
 import numpy as np
 
 from llama.influxdb import aggregate_stats_default
@@ -38,6 +39,7 @@ def setup_interface(args, influx_pusher, loop):
     reg_chan("exposure_2_ms", MeasurementType.exposure_time_2)
 
     lsa = LSA()
+    atexit.register(lsa.close)
 
     # Bridge from the driver thread to the main thread.
     def meas_cb(meas_type, meas_value):
