@@ -50,5 +50,8 @@ def setup_interface(args, influx_pusher, loop):
     return RPCInterface(lsa, channels.values())
 
 
-if __name__ == "__main__":
+def main():
     run_simple_rpc_server(4008, None, "lsa", setup_interface)
+
+if __name__ == "__main__":
+    main()
