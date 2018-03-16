@@ -254,7 +254,7 @@ class LSA:
         # case self._c_callback might already be gone as well, which renders
         # this entire exercise pointless).
         if self._driver:
-            close()
+            self.close()
 
     def close(self) -> None:
         self._driver.instantiate(c_long(cInstNotification),
