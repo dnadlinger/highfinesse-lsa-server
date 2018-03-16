@@ -5,7 +5,7 @@ import numpy as np
 
 from llama.influxdb import aggregate_stats_default
 from llama.rpc import add_chunker_methods, run_simple_rpc_server
-from llama.sample_chunker import SampleChunker
+from llama.channels import ChunkedChannel
 from .wlm_data import LSA, MeasurementType
 
 
@@ -28,8 +28,8 @@ def setup_interface(args, influx_pusher, loop):
         def cb(values):
             if influx_pusher:
                 influx_pusher.push(name, aggregate_stats_default(values))
-        chunker = SampleChunker(name, cb, 256, 30, loop)
-        channels[meas_type] = chunker
+        channel = ChunkedChannel(name, cb, 256, 30, loop)
+        channels[meas_type] = channel
 
     reg_chan("temperature_celsius", MeasurementType.temperature)
     reg_chan("air_pressure_mbar", MeasurementType.air_pressure)
