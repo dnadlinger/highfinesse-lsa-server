@@ -189,8 +189,7 @@ class LSA:
     _log = logging.getLogger("highfinesse_lsa.LSA")
 
     def __init__(self, startup_timeout_msecs: int=20000):
-        """
-        Initialise a connection to the WLM server application, starting it if
+        """Initialise a connection to the WLM server application, starting it if
         necessary.
 
         :param startup_timeout_msecs: The maximum amount of time the constructor
@@ -263,8 +262,8 @@ class LSA:
 
     def add_callback(self, cb: Callable[[MeasurementType,
                                          Union[int, float]], None]) -> None:
-        """
-        Register a callback to be invoked when a new measurement result arrives.
+        """Register a callback to be invoked when a new measurement result
+        arrives.
 
         Note that cb will be invoked _from the driver background thread, so it
         needs to be thread-safe.
@@ -276,13 +275,15 @@ class LSA:
 
     def remove_callback(self, cb: Callable[[MeasurementType,
                                             Union[int, float]], None]) -> None:
-        """Unregister a previously added measurement result callback."""
+        """Unregister a previously added measurement result callback.
+
+        This function is thread-safe.
+        """
         with self._result_callbacks_lock:
             self._result_callbacks.remove(cb)
 
     def get_analysis_trace(self):
-        """
-        Retrieves the latest analysis "pattern" (trace) from the server
+        """Retrieve the latest analysis "pattern" (trace) from the server
         application.
 
         :return: A tuple (wavelengths, amplitudes) of two ctypes arrays of
